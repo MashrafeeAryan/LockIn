@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/MashrafeeAryan/LockIn/releases/latest/download/LockIn-Setup.exe"><strong>Download LockIn-Setup.exe</strong></a>
+  <a href="https://github.com/MashrafeeAryan/LockIn/releases/latest/download/LockIn-Setup.exe"><strong>Download for Windows</strong></a>
 </p>
 
 <p align="center">
@@ -27,7 +27,7 @@
 
 ## Quick start
 
-1. Run **LockIn-Setup.exe** and click **OK** to add LockIn to your desktop.
+1. Download and run [**LockIn-Setup.exe**](https://github.com/MashrafeeAryan/LockIn/releases/latest/download/LockIn-Setup.exe), then click **OK** to add LockIn to your desktop.
 2. Open the ChatGPT or Claude desktop app and sign in.
 3. Open **LockIn** from your desktop. Pick your app, a timer, and **Easy** or **Hard**.
 4. Click **Start session**.
