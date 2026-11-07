@@ -33,3 +33,5 @@
 4. Click **Start session**.
 
 Click the strawberry in the bottom-right corner to see the timer or stop. **Easy** stops in one click. **Hard** asks for five correct derivatives.
+
+LockIn's source code is available under the [MIT License](LICENSE).
