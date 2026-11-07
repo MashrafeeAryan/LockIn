@@ -22,8 +22,8 @@
 <p align="center">
   <img src="assets/launcher.png" width="440" alt="LockIn launcher with ChatGPT and Claude, timer presets, and Easy and Hard stop modes">
 </p>
+https://github.com/user-attachments/assets/794a9398-f5cc-4233-8e71-26e3b5f5cb10
 
-<!-- Add the demo video here. -->
 
 ## Quick start
 
