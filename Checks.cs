@@ -126,6 +126,34 @@ namespace LockIn
                     Assert(stops == 1, "Stop did not request an immediate end to the session");
                 }
             });
+            check("Hard stop accepts five distinct correct answers and rejects a wrong answer", delegate
+            {
+                DerivativeChallenge challenge = new DerivativeChallenge(new Random(17));
+                int stops = 0;
+                using (DerivativeDialog dialog = new DerivativeDialog(challenge, delegate { stops++; }))
+                {
+                    dialog.Location = new Point(-20000, -20000);
+                    dialog.Show();
+                    Application.DoEvents();
+                    TextBox coefficient = dialog.Controls.OfType<TextBox>().Single(t => t.AccessibleName == "Coefficient");
+                    TextBox power = dialog.Controls.OfType<TextBox>().Single(t => t.AccessibleName == "Power of x");
+                    Button checkAnswer = dialog.Controls.OfType<Button>().Single(b => b.Text == "Check");
+                    coefficient.Text = (challenge.Coefficient * challenge.Power + 1).ToString();
+                    power.Text = (challenge.Power - 1).ToString();
+                    checkAnswer.PerformClick();
+                    Assert(challenge.CorrectAnswers == 0 && stops == 0, "A wrong answer advanced the challenge");
+
+                    HashSet<Tuple<int, int>> questions = new HashSet<Tuple<int, int>>();
+                    for (int i = 0; i < DerivativeChallenge.QuestionCount; i++)
+                    {
+                        Assert(questions.Add(Tuple.Create(challenge.Coefficient, challenge.Power)), "The challenge repeated a problem");
+                        coefficient.Text = (challenge.Coefficient * challenge.Power).ToString();
+                        power.Text = (challenge.Power - 1).ToString();
+                        checkAnswer.PerformClick();
+                        Assert(stops == (i == 4 ? 1 : 0), "The session did not end at exactly five correct answers");
+                    }
+                }
+            });
             check("Independent watchdog restores an invisible window when its controller exits", delegate
             {
                 Rectangle workArea = Screen.PrimaryScreen.WorkingArea;

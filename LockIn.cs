@@ -174,6 +174,8 @@ namespace LockIn
         private readonly FlatButton claudeButton;
         private readonly FlatButton start;
         private readonly FlatButton custom;
+        private readonly FlatButton easyStop;
+        private readonly FlatButton hardStop;
         private readonly List<FlatButton> durationButtons = new List<FlatButton>();
         private readonly Label status;
         private AppTarget selectedApp;
@@ -187,7 +189,7 @@ namespace LockIn
             SuspendLayout();
             Text = "LockIn";
             Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
-            ClientSize = new Size(484, 378);
+            ClientSize = new Size(484, 461);
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             AutoScaleDimensions = new SizeF(96, 96);
@@ -233,7 +235,14 @@ namespace LockIn
             durationButtons.Add(custom);
             SelectDuration(durationMinutes, durationButtons[0]);
 
-            start = AddButton("Start session", 28, 300, 428, 49);
+            AddLabel("End early", 28, 297, 428, 25, 11, FontStyle.Bold);
+            easyStop = AddButton("Easy · 1 click", 28, 327, 208, 42);
+            hardStop = AddButton("Hard · 5 derivatives", 248, 327, 208, 42);
+            easyStop.Click += delegate { SelectStopMode(false); };
+            hardStop.Click += delegate { SelectStopMode(true); };
+            SelectStopMode(false);
+
+            start = AddButton("Start session", 28, 387, 428, 49);
             start.Primary = true;
             start.Click += async delegate
             {
@@ -241,7 +250,7 @@ namespace LockIn
                 await LaunchSession();
             };
             AcceptButton = start;
-            status = AddLabel("", 28, 351, 428, 25, 9);
+            status = AddLabel("", 28, 436, 428, 24, 9);
             status.ForeColor = Theme.Muted;
             SelectApp(chatGpt);
 
@@ -301,6 +310,14 @@ namespace LockIn
             custom.Text = selected == custom ? value + " min" : "Custom";
         }
 
+        private void SelectStopMode(bool hard)
+        {
+            easyStop.Selected = !hard;
+            hardStop.Selected = hard;
+            easyStop.Invalidate();
+            hardStop.Invalidate();
+        }
+
         private void ChooseDuration()
         {
             using (Form dialog = new Form())
@@ -354,6 +371,8 @@ namespace LockIn
         {
             chatGptButton.Enabled = !busy;
             claudeButton.Enabled = !busy;
+            easyStop.Enabled = !busy;
+            hardStop.Enabled = !busy;
             foreach (FlatButton button in durationButtons) button.Enabled = !busy;
             start.Text = busy ? "Cancel" : "Start session";
         }
@@ -389,7 +408,7 @@ namespace LockIn
                     return;
                 }
 
-                session = new StudySession(this, target, durationMinutes * 60, delegate(bool completed)
+                session = new StudySession(this, target, durationMinutes * 60, hardStop.Selected, delegate(bool completed)
                 {
                     session = null;
                     Show();
@@ -537,6 +556,7 @@ namespace LockIn
         private readonly MainForm owner;
         private readonly IntPtr target;
         private readonly int seconds;
+        private readonly bool requireDerivatives;
         private readonly Action<bool> ended;
         private readonly List<Shield> shields = new List<Shield>();
         private readonly HashSet<int> down = new HashSet<int>();
@@ -544,6 +564,7 @@ namespace LockIn
         private RecoveryState state;
         private SessionClock clock;
         private TimerBadge badge;
+        private DerivativeDialog challengeDialog;
         private string recoveryPath;
         private IntPtr keyboardHook;
         private IntPtr foregroundHook;
@@ -556,8 +577,14 @@ namespace LockIn
         private bool hotkeyRegistered;
         private Rectangle bounds;
 
-        public StudySession(MainForm owner, IntPtr target, int seconds, Action<bool> ended)
-        { this.owner = owner; this.target = target; this.seconds = seconds; this.ended = ended; }
+        public StudySession(MainForm owner, IntPtr target, int seconds, bool requireDerivatives, Action<bool> ended)
+        {
+            this.owner = owner;
+            this.target = target;
+            this.seconds = seconds;
+            this.requireDerivatives = requireDerivatives;
+            this.ended = ended;
+        }
         public void Start()
         {
             hotkeyRegistered = Native.RegisterHotKey(owner.Handle, HotkeyId, 0x4007, 0x7B);
@@ -580,7 +607,7 @@ namespace LockIn
             foreach (WindowRecord record in state.Others) Native.ShowWindowAsync(new IntPtr(record.Handle), 7);
             Native.Fullscreen(target, bounds);
             clock = new SessionClock(seconds, Native.GetTickCount64);
-            badge = new TimerBadge(seconds, bounds, delegate { End(false); });
+            badge = new TimerBadge(seconds, bounds, RequestStop);
             badge.Show();
             active = true;
             foreach (int key in new int[] { 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0x5B, 0x5C })
@@ -601,8 +628,34 @@ namespace LockIn
         {
             if (hwnd == IntPtr.Zero) return true;
             if (badge != null && hwnd == badge.Handle) return true;
+            if (challengeDialog != null && challengeDialog.IsHandleCreated && hwnd == challengeDialog.Handle) return true;
             if (shields.Any(s => s.Handle == hwnd)) return true;
             return Native.IsRelated(hwnd, target);
+        }
+        private void RequestStop()
+        {
+            if (!active || ending) return;
+            if (!requireDerivatives)
+            {
+                End(false);
+                return;
+            }
+            if (challengeDialog != null)
+            {
+                Native.Focus(challengeDialog.Handle);
+                return;
+            }
+
+            challengeDialog = new DerivativeDialog(new DerivativeChallenge(new Random()), delegate { End(false); });
+            challengeDialog.Location = new Point(bounds.Left + (bounds.Width - challengeDialog.Width) / 2,
+                bounds.Top + (bounds.Height - challengeDialog.Height) / 2);
+            challengeDialog.FormClosed += delegate
+            {
+                challengeDialog = null;
+                BringBack();
+            };
+            challengeDialog.Show(badge);
+            Native.Focus(challengeDialog.Handle);
         }
         private void Tick(object sender, EventArgs e)
         {
@@ -631,7 +684,7 @@ namespace LockIn
                     }
                     Native.ShowWindowAsync(other, 7);
                 }
-                Native.Focus(target);
+                Native.Focus(challengeDialog != null && challengeDialog.Visible ? challengeDialog.Handle : target);
                 if (badge != null) Native.SetWindowPos(badge.Handle, new IntPtr(-1), 0, 0, 0, 0, 0x13);
             }
             finally { correcting = false; }
@@ -663,6 +716,7 @@ namespace LockIn
             if (keyboardHook != IntPtr.Zero) Native.UnhookWindowsHookEx(keyboardHook);
             if (foregroundHook != IntPtr.Zero) Native.UnhookWinEvent(foregroundHook);
             if (hotkeyRegistered) Native.UnregisterHotKey(owner.Handle, HotkeyId);
+            if (challengeDialog != null) challengeDialog.Close();
             if (badge != null) badge.Close();
             foreach (Shield shield in shields) shield.Close();
             if (state != null) Recovery.Restore(state);
@@ -718,7 +772,7 @@ namespace LockIn
             countdown = new Label
             {
                 Text = SessionClock.Format(remaining),
-                Bounds = new Rectangle(12, 1, 75, 46),
+                Bounds = new Rectangle(12, 4, 75, 40),
                 Font = Theme.Font(12, FontStyle.Bold),
                 ForeColor = Theme.Text,
                 TextAlign = ContentAlignment.MiddleCenter,
