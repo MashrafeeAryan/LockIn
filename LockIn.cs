@@ -172,6 +172,7 @@ namespace LockIn
         {
             SuspendLayout();
             Text = "LockIn";
+            Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
             ClientSize = new Size(484, 378);
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
@@ -183,7 +184,21 @@ namespace LockIn
             Font = Theme.Font(10);
             DoubleBuffered = true;
 
-            Label title = AddLabel("LockIn", 204, 23, 182, 58, 28, FontStyle.Bold);
+            using (Stream resource = typeof(MainForm).Assembly.GetManifestResourceStream("LockIn.logo.png"))
+            using (Image image = Image.FromStream(resource))
+            {
+                PictureBox logo = new PictureBox
+                {
+                    Bounds = new Rectangle(147, 19, 62, 62),
+                    SizeMode = PictureBoxSizeMode.Zoom,
+                    Image = new Bitmap(image),
+                    AccessibleName = "LockIn strawberry logo"
+                };
+                logo.Disposed += delegate { logo.Image.Dispose(); };
+                Controls.Add(logo);
+            }
+
+            Label title = AddLabel("LockIn", 210, 23, 182, 58, 28, FontStyle.Bold);
             title.TextAlign = ContentAlignment.MiddleLeft;
             AddLabel("App", 28, 98, 428, 25, 11, FontStyle.Bold);
             chatGptButton = AddButton("ChatGPT", 28, 128, 208, 55);
@@ -252,26 +267,6 @@ namespace LockIn
             FlatButton button = new FlatButton { Text = text, Bounds = new Rectangle(x, y, width, height) };
             Controls.Add(button);
             return button;
-        }
-
-        protected override void OnPaint(PaintEventArgs e)
-        {
-            base.OnPaint(e);
-            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            GraphicsState state = e.Graphics.Save();
-            float scale = ClientSize.Width / 484f;
-            e.Graphics.ScaleTransform(scale, scale);
-            using (Pen shackle = new Pen(Theme.Accent, 3.8f))
-                e.Graphics.DrawArc(shackle, 166, 31, 20, 25, 180, 180);
-            using (GraphicsPath body = Theme.RoundedRectangle(new Rectangle(160, 43, 32, 26), 6))
-            using (SolidBrush rose = new SolidBrush(Theme.Accent))
-            using (SolidBrush paper = new SolidBrush(Theme.Background))
-            {
-                e.Graphics.FillPath(rose, body);
-                e.Graphics.FillEllipse(paper, 173, 50, 6, 6);
-                e.Graphics.FillRectangle(paper, 175, 54, 2, 7);
-            }
-            e.Graphics.Restore(state);
         }
 
         private void SelectApp(AppTarget app)
