@@ -56,194 +56,363 @@ namespace LockIn
 
     internal static class Theme
     {
-        public static readonly Color Background = Color.FromArgb(18, 24, 23);
-        public static readonly Color Card = Color.FromArgb(28, 36, 34);
-        public static readonly Color Line = Color.FromArgb(57, 69, 64);
-        public static readonly Color Text = Color.FromArgb(240, 244, 234);
-        public static readonly Color Muted = Color.FromArgb(167, 183, 172);
-        public static readonly Color Accent = Color.FromArgb(205, 239, 146);
+        public static readonly Color Background = Color.FromArgb(255, 249, 245);
+        public static readonly Color Card = Color.FromArgb(255, 254, 252);
+        public static readonly Color Line = Color.FromArgb(221, 193, 191);
+        public static readonly Color Text = Color.FromArgb(71, 22, 37);
+        public static readonly Color Muted = Color.FromArgb(115, 76, 85);
+        public static readonly Color Accent = Color.FromArgb(166, 53, 78);
+        public static readonly Color Tint = Color.FromArgb(251, 225, 226);
+
         public static Font Font(float size, FontStyle style = FontStyle.Regular)
-        { return new Font("Segoe UI", size, style); }
+        {
+            return new Font("Segoe UI", size, style);
+        }
+
+        public static GraphicsPath RoundedRectangle(Rectangle bounds, int radius)
+        {
+            int diameter = Math.Min(radius * 2, Math.Min(bounds.Width, bounds.Height));
+            GraphicsPath path = new GraphicsPath();
+            path.AddArc(bounds.Left, bounds.Top, diameter, diameter, 180, 90);
+            path.AddArc(bounds.Right - diameter, bounds.Top, diameter, diameter, 270, 90);
+            path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);
+            path.AddArc(bounds.Left, bounds.Bottom - diameter, diameter, diameter, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
     }
 
     internal sealed class FlatButton : Button
     {
         public bool Primary;
         public bool Selected;
+        public string Glyph;
+        private bool hovered;
+
         public FlatButton()
         {
-            FlatStyle = FlatStyle.Flat; FlatAppearance.BorderSize = 0;
-            Cursor = Cursors.Hand; Font = Theme.Font(11, FontStyle.Bold);
+            FlatStyle = FlatStyle.Flat;
+            FlatAppearance.BorderSize = 0;
+            Cursor = Cursors.Hand;
+            Font = Theme.Font(11, FontStyle.Bold);
             SetStyle(ControlStyles.OptimizedDoubleBuffer, true);
         }
+
+        protected override void OnMouseEnter(EventArgs e)
+        {
+            base.OnMouseEnter(e);
+            hovered = true;
+            Invalidate();
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            base.OnMouseLeave(e);
+            hovered = false;
+            Invalidate();
+        }
+
         protected override void OnPaint(PaintEventArgs e)
         {
+            e.Graphics.Clear(Parent == null ? Theme.Background : Parent.BackColor);
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            Color fill = Primary || Selected ? Theme.Accent : Theme.Card;
-            if (!Enabled) fill = Theme.Line;
-            using (SolidBrush brush = new SolidBrush(fill)) e.Graphics.FillRectangle(brush, ClientRectangle);
-            if (!Primary && !Selected) using (Pen pen = new Pen(Theme.Line))
-                e.Graphics.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
-            TextRenderer.DrawText(e.Graphics, Text, Font, ClientRectangle,
-                Primary || Selected ? Theme.Background : Theme.Text,
-                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
-            if (Focused) ControlPaint.DrawFocusRectangle(e.Graphics, new Rectangle(5, 5, Width - 10, Height - 10));
+            Color fill = Selected || hovered ? Theme.Tint : Theme.Card;
+            if (Primary) fill = hovered ? Color.FromArgb(139, 38, 62) : Theme.Accent;
+            if (!Enabled) fill = Theme.Background;
+            Color ink = Primary && Enabled ? Color.White : Theme.Text;
+            if (!Enabled) ink = Theme.Muted;
+            Rectangle bounds = new Rectangle(1, 1, Width - 2, Height - 2);
+            using (GraphicsPath path = Theme.RoundedRectangle(bounds, 9))
+            using (SolidBrush brush = new SolidBrush(fill))
+            using (Pen outline = new Pen(Selected || Focused ? Theme.Accent : Theme.Line, Selected || Focused ? 1.8f : 1f))
+            {
+                e.Graphics.FillPath(brush, path);
+                if (!Primary || !Enabled) e.Graphics.DrawPath(outline, path);
+            }
+            TextFormatFlags flags = TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter |
+                TextFormatFlags.SingleLine | TextFormatFlags.NoPadding;
+            Rectangle textBounds = ClientRectangle;
+            if (!string.IsNullOrEmpty(Glyph))
+            {
+                using (Font iconFont = new Font("Segoe UI Symbol", Font.Size + 2))
+                {
+                    int textWidth = TextRenderer.MeasureText(e.Graphics, Text, Font, Size.Empty, flags).Width;
+                    int iconWidth = TextRenderer.MeasureText(e.Graphics, Glyph, iconFont, Size.Empty, flags).Width;
+                    int left = (Width - textWidth - iconWidth - 9) / 2;
+                    Rectangle iconBounds = new Rectangle(left, 0, iconWidth, Height);
+                    TextRenderer.DrawText(e.Graphics, Glyph, iconFont, iconBounds, ink, flags);
+                    textBounds = new Rectangle(left + iconWidth + 9, 0, textWidth + 2, Height);
+                }
+            }
+            TextRenderer.DrawText(e.Graphics, Text, Font, textBounds, ink, flags);
+            if (Focused && ShowFocusCues)
+                ControlPaint.DrawFocusRectangle(e.Graphics, Rectangle.Inflate(bounds, -4, -4));
         }
     }
 
     internal sealed class MainForm : Form
     {
-        private readonly NumericUpDown minutes = new NumericUpDown();
-        private readonly RadioButton hideMode = new RadioButton();
-        private readonly RadioButton closeMode = new RadioButton();
-        private readonly FlatButton start = new FlatButton();
-        private readonly FlatButton browse = new FlatButton();
-        private readonly FlatButton cancel = new FlatButton();
+        private readonly AppTarget chatGpt = new AppTarget("ChatGPT");
+        private readonly AppTarget claude = new AppTarget("Claude");
+        private readonly FlatButton chatGptButton;
+        private readonly FlatButton claudeButton;
+        private readonly FlatButton start;
+        private readonly FlatButton custom;
+        private readonly List<FlatButton> durationButtons = new List<FlatButton>();
         private readonly Label status;
-        private readonly Label selectedApp;
-        private readonly List<FlatButton> presets = new List<FlatButton>();
-        private readonly AppTarget app = new AppTarget();
+        private AppTarget selectedApp;
+        private int durationMinutes = 25;
         private StudySession session;
         private bool cancelLaunch;
         private bool launching;
 
         public MainForm()
         {
-            Text = "LockIn"; ClientSize = new Size(780, 674);
-            FormBorderStyle = FormBorderStyle.FixedSingle; MaximizeBox = false;
-            AutoScaleMode = AutoScaleMode.None; StartPosition = FormStartPosition.CenterScreen;
-            BackColor = Theme.Background; ForeColor = Theme.Text; Font = Theme.Font(10);
+            SuspendLayout();
+            Text = "LockIn";
+            ClientSize = new Size(484, 378);
+            FormBorderStyle = FormBorderStyle.FixedSingle;
+            MaximizeBox = false;
+            AutoScaleDimensions = new SizeF(96, 96);
+            AutoScaleMode = AutoScaleMode.Dpi;
+            StartPosition = FormStartPosition.CenterScreen;
+            BackColor = Theme.Background;
+            ForeColor = Theme.Text;
+            Font = Theme.Font(10);
             DoubleBuffered = true;
-            AddLabel("FOCUS STUDY  /  WINDOWS", 40, 30, 650, 22, 9, Theme.Accent, FontStyle.Bold);
-            AddLabel("Make room", 35, 76, 550, 70, 30, Theme.Text, FontStyle.Bold);
-            AddLabel("to learn.", 35, 141, 550, 70, 30, Theme.Text, FontStyle.Bold);
-            AddLabel("One app. One timer. Your attention back where you want it.", 42, 214, 700, 26, 11, Theme.Muted);
-            Panel card = new Panel { Location = new Point(40, 266), Size = new Size(700, 110), BackColor = Theme.Card };
-            Controls.Add(card);
-            Label logo = new Label { Text = "C", TextAlign = ContentAlignment.MiddleCenter,
-                Location = new Point(18, 25), Size = new Size(54, 54), BackColor = Theme.Accent,
-                ForeColor = Theme.Background, Font = Theme.Font(22, FontStyle.Bold) };
-            card.Controls.Add(logo);
-            selectedApp = new Label { Text = "ChatGPT desktop app", Location = new Point(90, 20), Size = new Size(410, 29),
-                Font = Theme.Font(14, FontStyle.Bold), ForeColor = Theme.Text };
-            card.Controls.Add(selectedApp);
-            card.Controls.Add(new Label { Text = "Opens your installed app in full screen.", Location = new Point(91, 56),
-                Size = new Size(430, 28), Font = Theme.Font(10), ForeColor = Theme.Muted });
-            browse.Text = "Choose .exe"; browse.Location = new Point(548, 34); browse.Size = new Size(133, 42);
-            browse.Click += delegate { ChooseApp(); }; card.Controls.Add(browse);
-            AddLabel("SESSION LENGTH", 40, 399, 300, 23, 9, Theme.Muted, FontStyle.Bold);
+
+            Label title = AddLabel("LockIn", 204, 23, 182, 58, 28, FontStyle.Bold);
+            title.TextAlign = ContentAlignment.MiddleLeft;
+            AddLabel("App", 28, 98, 428, 25, 11, FontStyle.Bold);
+            chatGptButton = AddButton("ChatGPT", 28, 128, 208, 55);
+            chatGptButton.Glyph = "\u25ce";
+            chatGptButton.Click += delegate { SelectApp(chatGpt); };
+            claudeButton = AddButton("Claude", 248, 128, 208, 55);
+            claudeButton.Glyph = "\u2733";
+            claudeButton.Click += delegate { SelectApp(claude); };
+
+            AddLabel("Timer", 28, 205, 428, 25, 11, FontStyle.Bold);
             int[] lengths = { 25, 45, 60 };
             for (int i = 0; i < lengths.Length; i++)
             {
                 int value = lengths[i];
-                FlatButton button = new FlatButton { Text = value + " min", Location = new Point(40 + i * 116, 431),
-                    Size = new Size(104, 43), Selected = value == 45 };
-                button.Click += delegate { minutes.Value = value; };
-                Controls.Add(button); presets.Add(button);
+                FlatButton button = AddButton(value + " min", 28 + i * 110, 235, 98, 43);
+                button.Click += delegate { SelectDuration(value, button); };
+                durationButtons.Add(button);
             }
-            minutes.Location = new Point(566, 438); minutes.Size = new Size(97, 33);
-            minutes.Minimum = 1; minutes.Maximum = 240; minutes.Value = 45;
-            minutes.BackColor = Theme.Card; minutes.ForeColor = Theme.Text;
-            minutes.Font = Theme.Font(13); minutes.BorderStyle = BorderStyle.FixedSingle;
-            minutes.ValueChanged += delegate { foreach (FlatButton button in presets)
-                { button.Selected = button.Text == minutes.Value + " min"; button.Invalidate(); } };
-            Controls.Add(minutes); AddLabel("min", 676, 441, 50, 30, 10, Theme.Muted);
-            hideMode.Text = "Hide + block other apps, then restore them";
-            hideMode.Location = new Point(42, 495); hideMode.Size = new Size(690, 28); hideMode.Checked = true;
-            closeMode.Text = "Ask other apps to close; allow save prompts first";
-            closeMode.Location = new Point(42, 526); closeMode.Size = new Size(690, 28);
-            Controls.Add(hideMode); Controls.Add(closeMode);
-            start.Text = "Study ChatGPT  >"; start.Primary = true;
-            start.Location = new Point(40, 573); start.Size = new Size(700, 53);
-            start.Click += async delegate { await LaunchSession(); }; Controls.Add(start);
-            status = AddLabel("Recovery shortcut: Ctrl + Alt + Shift + F12", 40, 640, 700, 25, 9, Theme.Muted);
-            cancel.Text = "Cancel"; cancel.Size = new Size(95, 30); cancel.Location = new Point(645, 636);
-            cancel.Visible = false; cancel.Click += delegate { cancelLaunch = true; }; Controls.Add(cancel);
+            custom = AddButton("Custom", 358, 235, 98, 43);
+            custom.Click += delegate { ChooseDuration(); };
+            durationButtons.Add(custom);
+            SelectDuration(durationMinutes, durationButtons[0]);
+
+            start = AddButton("Start session", 28, 300, 428, 49);
+            start.Primary = true;
+            start.Click += async delegate
+            {
+                if (launching) { cancelLaunch = true; return; }
+                await LaunchSession();
+            };
+            AcceptButton = start;
+            status = AddLabel("", 28, 351, 428, 25, 9);
+            status.ForeColor = Theme.Muted;
+            SelectApp(chatGpt);
+
             FormClosing += delegate(object sender, FormClosingEventArgs e)
             {
                 if (session != null && e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; return; }
-                cancelLaunch = true; RecoverSession();
+                cancelLaunch = true;
+                RecoverSession();
             };
-            SystemEventsSetup();
-        }
-
-        private void SystemEventsSetup()
-        {
             Microsoft.Win32.SystemEvents.DisplaySettingsChanged += DisplayChanged;
             Disposed += delegate { Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= DisplayChanged; };
+            ResumeLayout(false);
+            PerformLayout();
         }
+
         private void DisplayChanged(object sender, EventArgs e)
-        { if (session != null && IsHandleCreated) BeginInvoke((Action)delegate { RecoverSession(); status.Text = "Displays changed. Session unlocked."; }); }
-        private Label AddLabel(string text, int x, int y, int width, int height, float size, Color color, FontStyle style = FontStyle.Regular)
         {
-            Label label = new Label { Text = text, Location = new Point(x, y), Size = new Size(width, height),
-                Font = Theme.Font(size, style), ForeColor = color, BackColor = Color.Transparent };
-            Controls.Add(label); return label;
+            if (session != null && IsHandleCreated) BeginInvoke((Action)RecoverSession);
         }
+
+        private Label AddLabel(string text, int x, int y, int width, int height, float size, FontStyle style = FontStyle.Regular)
+        {
+            Label label = new Label
+            {
+                Text = text, Location = new Point(x, y), Size = new Size(width, height),
+                Font = Theme.Font(size, style), ForeColor = Theme.Text, BackColor = Color.Transparent
+            };
+            Controls.Add(label);
+            return label;
+        }
+
+        private FlatButton AddButton(string text, int x, int y, int width, int height)
+        {
+            FlatButton button = new FlatButton { Text = text, Bounds = new Rectangle(x, y, width, height) };
+            Controls.Add(button);
+            return button;
+        }
+
         protected override void OnPaint(PaintEventArgs e)
         {
-            base.OnPaint(e); e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            using (Pen pen = new Pen(Theme.Line, 9)) e.Graphics.DrawEllipse(pen, 625, 99, 84, 84);
-            using (Pen pen = new Pen(Theme.Accent, 9)) e.Graphics.DrawArc(pen, 625, 99, 84, 84, -90, 245);
-            using (Font font = Theme.Font(12)) TextRenderer.DrawText(e.Graphics, "focus", font, new Rectangle(625, 121, 85, 35),
-                Theme.Accent, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            base.OnPaint(e);
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            GraphicsState state = e.Graphics.Save();
+            float scale = ClientSize.Width / 484f;
+            e.Graphics.ScaleTransform(scale, scale);
+            using (Pen shackle = new Pen(Theme.Accent, 3.8f))
+                e.Graphics.DrawArc(shackle, 166, 31, 20, 25, 180, 180);
+            using (GraphicsPath body = Theme.RoundedRectangle(new Rectangle(160, 43, 32, 26), 6))
+            using (SolidBrush rose = new SolidBrush(Theme.Accent))
+            using (SolidBrush paper = new SolidBrush(Theme.Background))
+            {
+                e.Graphics.FillPath(rose, body);
+                e.Graphics.FillEllipse(paper, 173, 50, 6, 6);
+                e.Graphics.FillRectangle(paper, 175, 54, 2, 7);
+            }
+            e.Graphics.Restore(state);
         }
-        private void ChooseApp()
+
+        private void SelectApp(AppTarget app)
         {
-            using (OpenFileDialog dialog = new OpenFileDialog { Filter = "Windows application (*.exe)|*.exe", Title = "Choose ChatGPT's executable" })
+            selectedApp = app;
+            chatGptButton.Selected = app == chatGpt;
+            claudeButton.Selected = app == claude;
+            chatGptButton.Invalidate();
+            claudeButton.Invalidate();
+            status.Text = "";
+        }
+
+        private void SelectDuration(int value, FlatButton selected)
+        {
+            durationMinutes = value;
+            foreach (FlatButton button in durationButtons)
+            {
+                button.Selected = button == selected;
+                button.Invalidate();
+            }
+            custom.Text = selected == custom ? value + " min" : "Custom";
+        }
+
+        private void ChooseDuration()
+        {
+            using (Form dialog = new Form())
+            {
+                dialog.SuspendLayout();
+                dialog.Text = "Custom timer";
+                dialog.ClientSize = new Size(252, 121);
+                dialog.AutoScaleDimensions = new SizeF(96, 96);
+                dialog.AutoScaleMode = AutoScaleMode.Dpi;
+                dialog.FormBorderStyle = FormBorderStyle.FixedDialog;
+                dialog.StartPosition = FormStartPosition.CenterParent;
+                dialog.ShowInTaskbar = false;
+                dialog.MaximizeBox = false;
+                dialog.MinimizeBox = false;
+                dialog.BackColor = Theme.Background;
+                dialog.ForeColor = Theme.Text;
+                dialog.Font = Theme.Font(10);
+                Label label = new Label { Text = "Minutes", Bounds = new Rectangle(18, 22, 100, 30) };
+                NumericUpDown value = new NumericUpDown
+                {
+                    Minimum = 1, Maximum = 240, Value = durationMinutes, Bounds = new Rectangle(134, 18, 100, 30)
+                };
+                FlatButton apply = new FlatButton
+                {
+                    Text = "Set timer", Primary = true, DialogResult = DialogResult.OK,
+                    Bounds = new Rectangle(18, 64, 216, 40)
+                };
+                dialog.Controls.AddRange(new Control[] { label, value, apply });
+                dialog.AcceptButton = apply;
+                dialog.ActiveControl = value;
+                dialog.ResumeLayout(false);
+                if (dialog.ShowDialog(this) == DialogResult.OK) SelectDuration((int)value.Value, custom);
+            }
+        }
+
+        private void ChooseApp(AppTarget app)
+        {
+            using (OpenFileDialog dialog = new OpenFileDialog
+            {
+                Filter = "Windows application (*.exe)|*.exe",
+                Title = "Choose the " + app.Name + " application"
+            })
             {
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
                 app.Executable = Path.GetFullPath(dialog.FileName);
-                selectedApp.Text = Path.GetFileNameWithoutExtension(dialog.FileName);
-                status.Text = "Selected app: " + Path.GetFileName(dialog.FileName);
+                status.Text = app.Name + " selected";
             }
         }
+
         private void SetBusy(bool busy)
         {
-            start.Enabled = !busy; browse.Enabled = !busy; minutes.Enabled = !busy;
-            hideMode.Enabled = !busy; closeMode.Enabled = !busy;
-            foreach (FlatButton button in presets) button.Enabled = !busy;
-            cancel.Visible = busy; cancel.BringToFront();
+            chatGptButton.Enabled = !busy;
+            claudeButton.Enabled = !busy;
+            foreach (FlatButton button in durationButtons) button.Enabled = !busy;
+            start.Text = busy ? "Cancel" : "Start session";
         }
+
         private async Task LaunchSession()
         {
-            if (launching || session != null) return;
-            launching = true; cancelLaunch = false; SetBusy(true);
+            if (session != null) return;
+            AppTarget app = selectedApp;
+            launching = true;
+            cancelLaunch = false;
+            SetBusy(true);
             try
             {
-                status.Text = "Opening ChatGPT...";
+                status.Text = "Opening " + app.Name + "…";
+                app.DiscoverInstalledApp();
                 IntPtr target = app.FindWindow();
-                if (target == IntPtr.Zero) app.Launch();
-                Stopwatch wait = Stopwatch.StartNew();
-                while (target == IntPtr.Zero && wait.Elapsed.TotalSeconds < 30 && !cancelLaunch)
-                { await Task.Delay(200); target = app.FindWindow(); }
-                if (cancelLaunch || IsDisposed) return;
-                if (target == IntPtr.Zero) throw new InvalidOperationException("ChatGPT's window was not found. Open ChatGPT and sign in, then try again. You can also use Choose .exe.");
-                List<IntPtr> others = Native.DesktopWindows().Where(h => !Native.IsRelated(h, target)).ToList();
-                if (closeMode.Checked && others.Count > 0)
+                if (target == IntPtr.Zero && app.TryLaunch())
                 {
-                    DialogResult answer = MessageBox.Show(this,
-                        "LockIn will ask " + others.Count + " other desktop windows to close. Apps may ask you to save.\n\nNo processes will be force-closed. Continue?",
-                        "Close other apps", MessageBoxButtons.OKCancel, MessageBoxIcon.Information);
-                    if (answer != DialogResult.OK) return;
-                    foreach (IntPtr window in others) Native.PostMessage(window, Native.WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
-                    MessageBox.Show(this, "Finish any save prompts in your other apps.\n\nPress OK here when you are ready to start. Apps that stay open will be minimized and blocked.",
-                        "Save your work first", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    Stopwatch wait = Stopwatch.StartNew();
+                    while (target == IntPtr.Zero && wait.Elapsed.TotalSeconds < 30)
+                    {
+                        await Task.Delay(200);
+                        if (cancelLaunch || IsDisposed) return;
+                        target = app.FindWindow();
+                    }
                 }
-                if (!Native.IsWindow(target)) throw new InvalidOperationException("ChatGPT closed before the session began. Please reopen it.");
-                int duration = (int)minutes.Value;
-                session = new StudySession(this, target, duration * 60, delegate(bool completed)
+                if (target == IntPtr.Zero)
                 {
-                    session = null; Show(); WindowState = FormWindowState.Normal; Activate();
-                    status.Text = completed ? "Session complete. Your desktop is restored." : "Session unlocked. Your desktop is restored.";
+                    status.Text = app.Name + " wasn't found.";
+                    if (MessageBox.Show(this, "Open " + app.Name + " Desktop and try again, or choose its app file now.",
+                        "Choose app file?", MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
+                        ChooseApp(app);
+                    return;
+                }
+
+                session = new StudySession(this, target, durationMinutes * 60, delegate(bool completed)
+                {
+                    session = null;
+                    Show();
+                    WindowState = FormWindowState.Normal;
+                    Activate();
+                    status.Text = completed ? "Session complete" : "Session ended";
                 });
                 try { session.Start(); Hide(); }
                 catch { RecoverSession(); throw; }
             }
-            catch (Exception e) { status.Text = "Could not start. Your desktop is unlocked."; MessageBox.Show(this, e.Message, "LockIn", MessageBoxButtons.OK, MessageBoxIcon.Information); }
-            finally { launching = false; if (!IsDisposed) SetBusy(false); }
+            catch (Exception e)
+            {
+                status.Text = "Couldn't start session";
+                MessageBox.Show(this, e.Message, "LockIn", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            finally
+            {
+                launching = false;
+                if (!IsDisposed)
+                {
+                    if (cancelLaunch) status.Text = "";
+                    SetBusy(false);
+                }
+            }
         }
-        public void RecoverSession() { if (session != null) session.End(false); }
+
+        public void RecoverSession()
+        {
+            if (session != null) session.End(false);
+        }
+
         protected override void WndProc(ref Message m)
         {
             if (m.Msg == 0x0312 && m.WParam.ToInt32() == StudySession.HotkeyId) RecoverSession();
@@ -253,30 +422,74 @@ namespace LockIn
 
     internal sealed class AppTarget
     {
+        public readonly string Name;
         public string Executable;
-        public string AppId = ConfigurationManager.AppSettings["ChatGPTAppId"] ?? "OpenAI.ChatGPT-Desktop_2p2nqsd0c76g0!App";
+        private string appId;
+
+        public AppTarget(string name)
+        {
+            Name = name;
+            appId = ConfigurationManager.AppSettings[name + "AppId"];
+        }
+
+        public void DiscoverInstalledApp()
+        {
+            if (!string.IsNullOrEmpty(Executable)) return;
+            try
+            {
+                Type shellType = Type.GetTypeFromProgID("Shell.Application");
+                if (shellType == null) return;
+                dynamic shell = Activator.CreateInstance(shellType);
+                dynamic folder = shell.NameSpace("shell:AppsFolder");
+                if (folder == null) return;
+                dynamic apps = folder.Items();
+                int count = apps.Count;
+                for (int i = 0; i < count; i++)
+                {
+                    dynamic app = apps.Item(i);
+                    string name = app.Name;
+                    if (!string.Equals(name, Name, StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(name, Name + " Desktop", StringComparison.OrdinalIgnoreCase)) continue;
+                    string id = app.Path;
+                    if (string.IsNullOrEmpty(id)) continue;
+                    appId = id;
+                    return;
+                }
+            }
+            catch (COMException) { }
+            catch (Microsoft.CSharp.RuntimeBinder.RuntimeBinderException) { }
+        }
+
         public IntPtr FindWindow()
         {
             IntPtr result = IntPtr.Zero;
             Native.EnumWindows(delegate(IntPtr hwnd, IntPtr unused)
             {
-                if (!Native.IsCandidate(hwnd) || Native.IsIconic(hwnd) && !Native.IsWindowVisible(hwnd)) return true;
+                if (!Native.IsCandidate(hwnd)) return true;
                 uint pid = Native.WindowPid(hwnd);
                 string path = Native.ProcessPath(pid);
                 bool matches = !string.IsNullOrEmpty(Executable)
                     ? string.Equals(path, Executable, StringComparison.OrdinalIgnoreCase)
-                    : string.Equals(Native.ProcessAppId(pid), AppId, StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(Path.GetFileNameWithoutExtension(path), "ChatGPT", StringComparison.OrdinalIgnoreCase);
+                    : string.Equals(Path.GetFileNameWithoutExtension(path), Name, StringComparison.OrdinalIgnoreCase)
+                        || !string.IsNullOrEmpty(appId) && string.Equals(Native.ProcessAppId(pid), appId, StringComparison.OrdinalIgnoreCase);
                 if (!matches) return true;
-                result = hwnd; return false;
+                result = hwnd;
+                return false;
             }, IntPtr.Zero);
             return result;
         }
-        public void Launch()
+
+        public bool TryLaunch()
         {
-            if (!string.IsNullOrEmpty(Executable)) Process.Start(new ProcessStartInfo(Executable) { UseShellExecute = true });
-            else Process.Start(new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe"),
-                "shell:AppsFolder\\" + AppId) { UseShellExecute = false });
+            if (!string.IsNullOrEmpty(Executable))
+            {
+                Process.Start(new ProcessStartInfo(Executable) { UseShellExecute = true });
+                return true;
+            }
+            if (string.IsNullOrEmpty(appId)) return false;
+            string explorer = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe");
+            Process.Start(new ProcessStartInfo(explorer, "\"shell:AppsFolder\\" + appId + "\"") { UseShellExecute = false });
+            return true;
         }
     }
 
@@ -339,7 +552,7 @@ namespace LockIn
             state = new RecoveryState { ParentPid = Process.GetCurrentProcess().Id,
                 ParentStartTicks = Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks,
                 Seconds = seconds, Target = WindowRecord.Capture(target) };
-            if (!state.Target.Matches()) throw new InvalidOperationException("ChatGPT's window could not be verified for safe restoration.");
+            if (!state.Target.Matches()) throw new InvalidOperationException("The app window could not be verified for restoration.");
             foreach (IntPtr hwnd in Native.DesktopWindows())
                 if (!Native.IsRelated(hwnd, target) && !Native.IsIconic(hwnd)) state.Others.Add(WindowRecord.Capture(hwnd));
             recoveryPath = Path.Combine(Path.GetTempPath(), "LockIn-" + Guid.NewGuid().ToString("N") + ".xml");
@@ -459,11 +672,9 @@ namespace LockIn
         protected override void OnMouseDown(MouseEventArgs e) { focus(); }
         protected override void OnPaint(PaintEventArgs e)
         {
-            using (Font font = Theme.Font(27, FontStyle.Bold)) TextRenderer.DrawText(e.Graphics, "Your attention has a place.", font,
-                new Rectangle(20, Height / 2 - 45, Width - 40, 70), Theme.Text, TextFormatFlags.HorizontalCenter);
-            using (Font font = Theme.Font(11)) TextRenderer.DrawText(e.Graphics, "ChatGPT is open on your study screen. This display will return when your timer ends.", font,
-                new Rectangle(30, Height / 2 + 25, Width - 60, 70), Theme.Muted,
-                TextFormatFlags.HorizontalCenter | TextFormatFlags.WordBreak);
+            using (Font font = Theme.Font(22, FontStyle.Bold))
+                TextRenderer.DrawText(e.Graphics, "Session in progress", font, ClientRectangle, Theme.Text,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         }
     }
 
@@ -571,7 +782,6 @@ namespace LockIn
 
     public static class Native
     {
-        public const uint WM_CLOSE = 0x10;
         public delegate bool EnumProc(IntPtr hwnd, IntPtr param);
         public delegate IntPtr HookProc(int code, IntPtr message, IntPtr data);
         public delegate void WinEventProc(IntPtr hook, uint evt, IntPtr hwnd, int objectId, int childId, uint thread, uint time);
@@ -610,7 +820,6 @@ namespace LockIn
         [DllImport("user32.dll")] public static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr message, IntPtr data);
         [DllImport("user32.dll")] public static extern IntPtr SetWinEventHook(uint min, uint max, IntPtr module, WinEventProc proc, uint process, uint thread, uint flags);
         [DllImport("user32.dll")] public static extern bool UnhookWinEvent(IntPtr hook);
-        [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hwnd, uint msg, IntPtr wp, IntPtr lp);
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr GetModuleHandle(string name);
         [DllImport("kernel32.dll")] public static extern ulong GetTickCount64();
         [DllImport("kernel32.dll", SetLastError = true)] private static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
@@ -669,7 +878,7 @@ namespace LockIn
             long style = GetStyle(hwnd, -16).ToInt64();
             SetStyle(hwnd, -16, new IntPtr(style & ~0x21CF0000L));
             if (!SetWindowPos(hwnd, new IntPtr(-1), bounds.Left, bounds.Top, bounds.Width, bounds.Height, 0x4070))
-                throw new Win32Exception(Marshal.GetLastWin32Error(), "ChatGPT could not be moved to full screen.");
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "The app could not be moved to full screen.");
         }
         public static void Focus(IntPtr hwnd)
         {

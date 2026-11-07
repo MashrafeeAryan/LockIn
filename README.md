@@ -1,7 +1,7 @@
 # LockIn
 
 1. On Windows, click **Code → Download ZIP** and extract the files.
-2. Open ChatGPT and sign in.
+2. Open the ChatGPT or Claude desktop app and sign in.
 3. Open PowerShell in the extracted folder and run:
 
    ```powershell
@@ -9,6 +9,6 @@
    .\LockIn.exe
    ```
 
-4. Set a timer and click **Study ChatGPT**.
+4. Pick your app, set a timer, and click **Start session**.
 
 To cancel, press **Ctrl + Alt + Shift + F12**.
