@@ -1,14 +1,8 @@
 # LockIn
 
-1. On Windows, click **Code → Download ZIP** and extract the files.
-2. Open the ChatGPT or Claude desktop app and sign in.
-3. Open PowerShell in the extracted folder and run:
-
-   ```powershell
-   .\build.ps1
-   .\LockIn.exe
-   ```
-
-4. Pick your app, set a timer, and click **Start session**.
+1. On Windows, download [LockIn Setup](https://github.com/MashrafeeAryan/LockIn/releases/latest/download/LockIn-Setup.exe).
+2. Run **LockIn-Setup.exe** and click **OK** to add LockIn to your desktop.
+3. Open the ChatGPT or Claude desktop app and sign in.
+4. Open **LockIn** from your desktop, pick your app, and start a timer.
 
 To end early, click **Stop** beside the countdown.
