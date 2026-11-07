@@ -94,7 +94,7 @@ namespace LockIn
                     form.Close();
                 }
             });
-            check("The bottom-right timer collapses, reopens, and still delivers Stop", delegate
+            check("The timer animates both ways without moving the strawberry and still delivers Stop", delegate
             {
                 int stops = 0;
                 Rectangle screen = new Rectangle(-20800, -20600, 800, 600);
@@ -108,18 +108,14 @@ namespace LockIn
                     Rectangle expanded = badge.Bounds;
                     Assert(stop.Visible && expanded.Right < screen.Right && expanded.Bottom < screen.Bottom,
                         "The timer must start expanded in the bottom-right corner");
-                    Stopwatch elapsed = Stopwatch.StartNew();
-                    while (stop.Visible && elapsed.ElapsedMilliseconds < 4000)
-                    {
-                        Application.DoEvents();
-                        Thread.Sleep(15);
-                    }
+                    CheckTimerMotion(badge, expanded, badge.Height);
                     Assert(!stop.Visible && badge.Width == badge.Height, "The timer did not tuck into the strawberry");
                     Assert(badge.Right == expanded.Right && badge.Bottom == expanded.Bottom,
                         "The strawberry moved away from its corner");
                     badge.Remaining = 1480;
                     Button strawberry = badge.Controls.OfType<Button>().Single(b => b.AccessibleName == "Show timer");
                     strawberry.PerformClick();
+                    CheckTimerMotion(badge, expanded, expanded.Width);
                     Assert(stop.Visible && badge.Bounds == expanded, "The strawberry did not reopen the timer");
                     Assert(badge.Controls.OfType<Label>().Single().Text == "24:40", "The hidden timer did not stay current");
                     stop.PerformClick();
@@ -200,6 +196,23 @@ namespace LockIn
             File.WriteAllLines(output, new string[] { passed ? "ALL CHECKS PASSED" : "CHECKS FAILED" }.Concat(results));
             Environment.ExitCode = passed ? 0 : 1;
         }
+        private static void CheckTimerMotion(TimerBadge badge, Rectangle expanded, int targetWidth)
+        {
+            Stopwatch elapsed = Stopwatch.StartNew();
+            bool sawIntermediateWidth = false;
+            while (badge.Width != targetWidth && elapsed.ElapsedMilliseconds < 4000)
+            {
+                Application.DoEvents();
+                Assert(badge.Right == expanded.Right && badge.Bottom == expanded.Bottom,
+                    "The timer drifted away from its corner during the animation");
+                if (badge.Width > badge.Height && badge.Width < expanded.Width)
+                    sawIntermediateWidth = true;
+                Thread.Sleep(10);
+            }
+            Assert(badge.Width == targetWidth && sawIntermediateWidth,
+                "The timer must animate through intermediate widths");
+        }
+
         private static void Assert(bool condition, string message = "Assertion failed") { if (!condition) throw new InvalidOperationException(message); }
     }
 }

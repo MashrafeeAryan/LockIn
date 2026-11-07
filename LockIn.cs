@@ -752,7 +752,14 @@ namespace LockIn
         private readonly FlatButton stopButton;
         private readonly FlatButton strawberry;
         private readonly System.Windows.Forms.Timer intro = new System.Windows.Forms.Timer { Interval = 2000 };
+        private readonly System.Windows.Forms.Timer animation = new System.Windows.Forms.Timer { Interval = 15 };
+        private readonly Stopwatch animationClock = new Stopwatch();
         private readonly Size expandedSize;
+        private readonly int countdownLeft;
+        private readonly int stopLeft;
+        private int animationStartWidth;
+        private int animationTargetWidth;
+        private double animationDuration;
         private bool expanded;
 
         public TimerBadge(int remaining, Rectangle screen, Action stop)
@@ -800,11 +807,15 @@ namespace LockIn
             strawberry.Disposed += delegate { logo.Dispose(); };
             Controls.AddRange(new Control[] { countdown, stopButton, strawberry });
             intro.Tick += delegate { SetExpanded(false); };
-            Disposed += delegate { intro.Dispose(); };
+            animation.Tick += delegate { AnimateWidth(); };
+            Disposed += delegate { intro.Dispose(); animation.Dispose(); };
             ResumeLayout(false);
             PerformLayout();
             expandedSize = Size;
-            SetExpanded(true);
+            countdownLeft = countdown.Left;
+            stopLeft = stopButton.Left;
+            expanded = true;
+            ApplyWidth(expandedSize.Width);
         }
 
         protected override void OnShown(EventArgs e)
@@ -817,16 +828,47 @@ namespace LockIn
         {
             intro.Stop();
             expanded = showTimer;
-            countdown.Visible = showTimer;
-            stopButton.Visible = showTimer;
             strawberry.AccessibleName = showTimer ? "Hide timer" : "Show timer";
 
-            int width = showTimer ? expandedSize.Width : expandedSize.Height;
+            animationStartWidth = Width;
+            animationTargetWidth = showTimer ? expandedSize.Width : expandedSize.Height;
+            if (animationStartWidth == animationTargetWidth)
+            {
+                animation.Stop();
+                return;
+            }
+
+            double distance = Math.Abs(animationTargetWidth - animationStartWidth);
+            double fullDistance = expandedSize.Width - expandedSize.Height;
+            animationDuration = Math.Max(90, (showTimer ? 290 : 210) * distance / fullDistance);
+            animationClock.Restart();
+            animation.Start();
+        }
+
+        private void AnimateWidth()
+        {
+            double progress = Math.Min(1, animationClock.Elapsed.TotalMilliseconds / animationDuration);
+            double eased = progress * progress * (3 - 2 * progress);
+            int width = animationStartWidth + (int)Math.Round((animationTargetWidth - animationStartWidth) * eased);
+            if (width != Width) ApplyWidth(width);
+            if (progress >= 1) animation.Stop();
+        }
+
+        private void ApplyWidth(int width)
+        {
+            // Unfold to the left while the berry stays at the same screen position.
+            SuspendLayout();
+            int shift = width - expandedSize.Width;
             int inset = strawberry.Top;
+            countdown.Left = countdownLeft + shift;
+            stopButton.Left = stopLeft + shift;
             strawberry.Left = width - strawberry.Width - inset;
             int margin = expandedSize.Height / 4;
             SetBounds(screen.Right - width - margin, screen.Bottom - expandedSize.Height - margin,
                 width, expandedSize.Height);
+            countdown.Visible = countdown.Left >= inset;
+            stopButton.Visible = stopButton.Left >= inset;
+            ResumeLayout(false);
             Invalidate();
         }
 
@@ -873,11 +915,12 @@ namespace LockIn
             using (Pen line = new Pen(Theme.Line))
                 e.Graphics.DrawPath(line, path);
 
-            if (expanded)
+            if (countdown.Visible)
             {
-                float scale = ClientSize.Width / 240f;
+                float scale = expandedSize.Width / 240f;
+                float x = 92 * scale + ClientSize.Width - expandedSize.Width;
                 using (Pen line = new Pen(Theme.Line))
-                    e.Graphics.DrawLine(line, 92 * scale, 13 * scale, 92 * scale, 35 * scale);
+                    e.Graphics.DrawLine(line, x, 13 * scale, x, 35 * scale);
             }
         }
     }
