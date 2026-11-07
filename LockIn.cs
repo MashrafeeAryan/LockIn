@@ -70,9 +70,9 @@ namespace LockIn
             return new Font("Segoe UI", size, style);
         }
 
-        public static Bitmap LoadLogo()
+        public static Bitmap LoadLogo(string resourceName = "LockIn.logo.png")
         {
-            using (Stream resource = typeof(Theme).Assembly.GetManifestResourceStream("LockIn.logo.png"))
+            using (Stream resource = typeof(Theme).Assembly.GetManifestResourceStream(resourceName))
             using (Image image = Image.FromStream(resource))
                 return new Bitmap(image);
         }
@@ -144,9 +144,18 @@ namespace LockIn
             Rectangle textBounds = ClientRectangle;
             if (Image != null)
             {
-                int side = Math.Min(Width, Height) * 4 / 5;
+                bool hasLabel = !string.IsNullOrEmpty(Text);
+                int side = Math.Min(Width, Height) * (hasLabel ? 2 : 4) / 5;
+                int left = (Width - side) / 2;
+                if (hasLabel)
+                {
+                    int textWidth = TextRenderer.MeasureText(e.Graphics, Text, Font, Size.Empty, flags).Width;
+                    int gap = Height / 6;
+                    left = (Width - side - gap - textWidth) / 2;
+                    textBounds = new Rectangle(left + side + gap, 0, textWidth + 2, Height);
+                }
                 e.Graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                e.Graphics.DrawImage(Image, (Width - side) / 2, (Height - side) / 2, side, side);
+                e.Graphics.DrawImage(Image, left, (Height - side) / 2, side, side);
             }
             else if (!string.IsNullOrEmpty(Glyph))
             {
@@ -214,12 +223,8 @@ namespace LockIn
             Label title = AddLabel("LockIn", 210, 23, 182, 58, 28, FontStyle.Bold);
             title.TextAlign = ContentAlignment.MiddleLeft;
             AddLabel("App", 28, 98, 428, 25, 11, FontStyle.Bold);
-            chatGptButton = AddButton("ChatGPT", 28, 128, 208, 55);
-            chatGptButton.Glyph = "\u25ce";
-            chatGptButton.Click += delegate { SelectApp(chatGpt); };
-            claudeButton = AddButton("Claude", 248, 128, 208, 55);
-            claudeButton.Glyph = "\u2733";
-            claudeButton.Click += delegate { SelectApp(claude); };
+            chatGptButton = AddAppButton(chatGpt, "LockIn.chatgpt.png", 28);
+            claudeButton = AddAppButton(claude, "LockIn.claude.png", 248);
 
             AddLabel("Timer", 28, 205, 428, 25, 11, FontStyle.Bold);
             int[] lengths = { 25, 45, 60 };
@@ -286,6 +291,16 @@ namespace LockIn
         {
             FlatButton button = new FlatButton { Text = text, Bounds = new Rectangle(x, y, width, height) };
             Controls.Add(button);
+            return button;
+        }
+
+        private FlatButton AddAppButton(AppTarget app, string resourceName, int x)
+        {
+            Bitmap logo = Theme.LoadLogo(resourceName);
+            FlatButton button = AddButton(app.Name, x, 128, 208, 55);
+            button.Image = logo;
+            button.Disposed += delegate { logo.Dispose(); };
+            button.Click += delegate { SelectApp(app); };
             return button;
         }
 
