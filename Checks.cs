@@ -94,18 +94,34 @@ namespace LockIn
                     form.Close();
                 }
             });
-            check("Stop works on a nonactivating timer window", delegate
+            check("The bottom-right timer collapses, reopens, and still delivers Stop", delegate
             {
                 int stops = 0;
-                using (TimerBadge badge = new TimerBadge(1499, delegate { stops++; }))
+                Rectangle screen = new Rectangle(-20800, -20600, 800, 600);
+                using (TimerBadge badge = new TimerBadge(1499, screen, delegate { stops++; }))
                 {
-                    badge.Location = new Point(-20000, -20000);
                     badge.Show();
                     Application.DoEvents();
                     Assert((Native.GetStyle(badge.Handle, -20).ToInt64() & 0x08000000) != 0,
                         "The timer must not steal focus from the study app");
                     Button stop = badge.Controls.OfType<Button>().Single(b => b.Text == "Stop");
-                    Assert(stop.Visible && stop.Enabled, "Stop is not available");
+                    Rectangle expanded = badge.Bounds;
+                    Assert(stop.Visible && expanded.Right < screen.Right && expanded.Bottom < screen.Bottom,
+                        "The timer must start expanded in the bottom-right corner");
+                    Stopwatch elapsed = Stopwatch.StartNew();
+                    while (stop.Visible && elapsed.ElapsedMilliseconds < 4000)
+                    {
+                        Application.DoEvents();
+                        Thread.Sleep(15);
+                    }
+                    Assert(!stop.Visible && badge.Width == badge.Height, "The timer did not tuck into the strawberry");
+                    Assert(badge.Right == expanded.Right && badge.Bottom == expanded.Bottom,
+                        "The strawberry moved away from its corner");
+                    badge.Remaining = 1480;
+                    Button strawberry = badge.Controls.OfType<Button>().Single(b => b.AccessibleName == "Show timer");
+                    strawberry.PerformClick();
+                    Assert(stop.Visible && badge.Bounds == expanded, "The strawberry did not reopen the timer");
+                    Assert(badge.Controls.OfType<Label>().Single().Text == "24:40", "The hidden timer did not stay current");
                     stop.PerformClick();
                     Assert(stops == 1, "Stop did not request an immediate end to the session");
                 }

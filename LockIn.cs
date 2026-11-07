@@ -30,7 +30,8 @@ namespace LockIn
             if (args.Length == 2 && args[0] == "--self-test") { Checks.Run(args[1]); return; }
             if (args.Length == 2 && (args[0] == "--preview" || args[0] == "--preview-timer"))
             {
-                using (Form preview = args[0] == "--preview" ? (Form)new MainForm() : new TimerBadge(1499, delegate { }))
+                using (Form preview = args[0] == "--preview" ? (Form)new MainForm() :
+                    new TimerBadge(1499, new Rectangle(-20800, -20600, 800, 600), delegate { }))
                 {
                     preview.StartPosition = FormStartPosition.Manual; preview.Location = new System.Drawing.Point(-20000, -20000);
                     preview.Show(); Application.DoEvents();
@@ -67,6 +68,13 @@ namespace LockIn
         public static Font Font(float size, FontStyle style = FontStyle.Regular)
         {
             return new Font("Segoe UI", size, style);
+        }
+
+        public static Bitmap LoadLogo()
+        {
+            using (Stream resource = typeof(Theme).Assembly.GetManifestResourceStream("LockIn.logo.png"))
+            using (Image image = Image.FromStream(resource))
+                return new Bitmap(image);
         }
 
         public static GraphicsPath RoundedRectangle(Rectangle bounds, int radius)
@@ -134,7 +142,13 @@ namespace LockIn
             TextFormatFlags flags = TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter |
                 TextFormatFlags.SingleLine | TextFormatFlags.NoPadding;
             Rectangle textBounds = ClientRectangle;
-            if (!string.IsNullOrEmpty(Glyph))
+            if (Image != null)
+            {
+                int side = Math.Min(Width, Height) * 4 / 5;
+                e.Graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                e.Graphics.DrawImage(Image, (Width - side) / 2, (Height - side) / 2, side, side);
+            }
+            else if (!string.IsNullOrEmpty(Glyph))
             {
                 using (Font iconFont = new Font("Segoe UI Symbol", Font.Size + 2))
                 {
@@ -184,19 +198,16 @@ namespace LockIn
             Font = Theme.Font(10);
             DoubleBuffered = true;
 
-            using (Stream resource = typeof(MainForm).Assembly.GetManifestResourceStream("LockIn.logo.png"))
-            using (Image image = Image.FromStream(resource))
+            Bitmap logoImage = Theme.LoadLogo();
+            PictureBox logo = new PictureBox
             {
-                PictureBox logo = new PictureBox
-                {
-                    Bounds = new Rectangle(147, 19, 62, 62),
-                    SizeMode = PictureBoxSizeMode.Zoom,
-                    Image = new Bitmap(image),
-                    AccessibleName = "LockIn strawberry logo"
-                };
-                logo.Disposed += delegate { logo.Image.Dispose(); };
-                Controls.Add(logo);
-            }
+                Bounds = new Rectangle(147, 19, 62, 62),
+                SizeMode = PictureBoxSizeMode.Zoom,
+                Image = logoImage,
+                AccessibleName = "LockIn strawberry logo"
+            };
+            logo.Disposed += delegate { logoImage.Dispose(); };
+            Controls.Add(logo);
 
             Label title = AddLabel("LockIn", 210, 23, 182, 58, 28, FontStyle.Bold);
             title.TextAlign = ContentAlignment.MiddleLeft;
@@ -568,10 +579,9 @@ namespace LockIn
             }
             foreach (WindowRecord record in state.Others) Native.ShowWindowAsync(new IntPtr(record.Handle), 7);
             Native.Fullscreen(target, bounds);
-            badge = new TimerBadge(seconds, delegate { End(false); });
-            badge.Location = new Point(bounds.Left + (bounds.Width - badge.Width) / 2, bounds.Top + 8);
-            badge.Show();
             clock = new SessionClock(seconds, Native.GetTickCount64);
+            badge = new TimerBadge(seconds, bounds, delegate { End(false); });
+            badge.Show();
             active = true;
             foreach (int key in new int[] { 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0x5B, 0x5C })
                 if ((Native.GetAsyncKeyState(key) & 0x8000) != 0) down.Add(key);
@@ -683,10 +693,17 @@ namespace LockIn
 
     internal sealed class TimerBadge : Form
     {
+        private readonly Rectangle screen;
         private readonly Label countdown;
+        private readonly FlatButton stopButton;
+        private readonly FlatButton strawberry;
+        private readonly System.Windows.Forms.Timer intro = new System.Windows.Forms.Timer { Interval = 2000 };
+        private readonly Size expandedSize;
+        private bool expanded;
 
-        public TimerBadge(int remaining, Action stop)
+        public TimerBadge(int remaining, Rectangle screen, Action stop)
         {
+            this.screen = screen;
             SuspendLayout();
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
@@ -694,32 +711,69 @@ namespace LockIn
             StartPosition = FormStartPosition.Manual;
             AutoScaleDimensions = new SizeF(96, 96);
             AutoScaleMode = AutoScaleMode.Dpi;
-            ClientSize = new Size(204, 46);
+            ClientSize = new Size(240, 48);
             BackColor = Theme.Card;
             DoubleBuffered = true;
 
             countdown = new Label
             {
                 Text = SessionClock.Format(remaining),
-                Bounds = new Rectangle(31, 1, 73, 44),
+                Bounds = new Rectangle(12, 1, 75, 46),
                 Font = Theme.Font(12, FontStyle.Bold),
                 ForeColor = Theme.Text,
                 TextAlign = ContentAlignment.MiddleCenter,
                 AccessibleName = "Time remaining"
             };
-            FlatButton stopButton = new FlatButton
+            stopButton = new FlatButton
             {
                 Text = "Stop",
                 Glyph = "\u25a0",
                 AccentOutline = true,
-                Bounds = new Rectangle(116, 6, 78, 34),
+                Bounds = new Rectangle(100, 7, 83, 34),
                 Font = Theme.Font(9, FontStyle.Bold),
                 AccessibleName = "Stop session"
             };
-            stopButton.Click += delegate { stop(); };
-            Controls.AddRange(new Control[] { countdown, stopButton });
+            stopButton.Click += delegate { intro.Stop(); stop(); };
+
+            Bitmap logo = Theme.LoadLogo();
+            strawberry = new FlatButton
+            {
+                Image = logo,
+                Bounds = new Rectangle(197, 5, 38, 38),
+                AccessibleName = "Hide timer"
+            };
+            strawberry.Click += delegate { SetExpanded(!expanded); };
+            strawberry.Disposed += delegate { logo.Dispose(); };
+            Controls.AddRange(new Control[] { countdown, stopButton, strawberry });
+            intro.Tick += delegate { SetExpanded(false); };
+            Disposed += delegate { intro.Dispose(); };
             ResumeLayout(false);
             PerformLayout();
+            expandedSize = Size;
+            SetExpanded(true);
+        }
+
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            intro.Start();
+        }
+
+        private void SetExpanded(bool showTimer)
+        {
+            intro.Stop();
+            expanded = showTimer;
+            countdown.Visible = showTimer;
+            stopButton.Visible = showTimer;
+            strawberry.AccessibleName = showTimer ? "Hide timer" : "Show timer";
+
+            int width = showTimer ? expandedSize.Width : expandedSize.Height;
+            int inset = strawberry.Top;
+            strawberry.Left = width - strawberry.Width - inset;
+            int margin = expandedSize.Height / 4;
+            SetBounds(screen.Right - width - margin, screen.Bottom - expandedSize.Height - margin,
+                width, expandedSize.Height);
+            Invalidate();
         }
 
         public int Remaining
@@ -765,19 +819,12 @@ namespace LockIn
             using (Pen line = new Pen(Theme.Line))
                 e.Graphics.DrawPath(line, path);
 
-            GraphicsState state = e.Graphics.Save();
-            float scale = ClientSize.Width / 204f;
-            e.Graphics.ScaleTransform(scale, scale);
-            using (Pen line = new Pen(Theme.Line))
-                e.Graphics.DrawLine(line, 109, 12, 109, 34);
-            using (Pen icon = new Pen(Theme.Accent, 1.5f))
+            if (expanded)
             {
-                e.Graphics.DrawEllipse(icon, 15, 17, 13, 13);
-                e.Graphics.DrawLine(icon, 19, 14, 24, 14);
-                e.Graphics.DrawLine(icon, 21.5f, 14, 21.5f, 17);
-                e.Graphics.DrawLine(icon, 21.5f, 20, 21.5f, 23.5f);
+                float scale = ClientSize.Width / 240f;
+                using (Pen line = new Pen(Theme.Line))
+                    e.Graphics.DrawLine(line, 92 * scale, 13 * scale, 92 * scale, 35 * scale);
             }
-            e.Graphics.Restore(state);
         }
     }
 
