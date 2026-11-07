@@ -27,7 +27,7 @@ namespace LockIn
             if (args.Length == 1 && args[0] == "--test-idle") { Thread.Sleep(2000); return; }
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-
+            if (args.Length == 2 && args[0] == "--self-test") { Checks.Run(args[1]); return; }
             if (args.Length == 2 && args[0] == "--preview")
             {
                 using (MainForm preview = new MainForm())
