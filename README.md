@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/MashrafeeAryan/LockIn/releases/latest/download/LockIn-Setup.exe"><strong>Download for Windows</strong></a>
+  <a href="https://github.com/MashrafeeAryan/LockIn/releases/latest/download/LockIn-Setup.exe"><strong>Download LockIn-Setup.exe</strong></a>
 </p>
 
 <p align="center">
