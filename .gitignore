@@ -1,0 +1,8 @@
+*.exe
+*.pdb
+*.zip
+*.new
+checks.txt
+preview.png
+recovery-test.xml
+watchdog-test.xml
