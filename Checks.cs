@@ -94,6 +94,22 @@ namespace LockIn
                     form.Close();
                 }
             });
+            check("Stop works on a nonactivating timer window", delegate
+            {
+                int stops = 0;
+                using (TimerBadge badge = new TimerBadge(1499, delegate { stops++; }))
+                {
+                    badge.Location = new Point(-20000, -20000);
+                    badge.Show();
+                    Application.DoEvents();
+                    Assert((Native.GetStyle(badge.Handle, -20).ToInt64() & 0x08000000) != 0,
+                        "The timer must not steal focus from the study app");
+                    Button stop = badge.Controls.OfType<Button>().Single(b => b.Text == "Stop");
+                    Assert(stop.Visible && stop.Enabled, "Stop is not available");
+                    stop.PerformClick();
+                    Assert(stops == 1, "Stop did not request an immediate end to the session");
+                }
+            });
             check("Independent watchdog restores an invisible window when its controller exits", delegate
             {
                 Rectangle workArea = Screen.PrimaryScreen.WorkingArea;

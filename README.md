@@ -11,4 +11,4 @@
 
 4. Pick your app, set a timer, and click **Start session**.
 
-To cancel, press **Ctrl + Alt + Shift + F12**.
+To end early, click **Stop** beside the countdown.

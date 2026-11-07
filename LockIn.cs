@@ -28,9 +28,9 @@ namespace LockIn
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             if (args.Length == 2 && args[0] == "--self-test") { Checks.Run(args[1]); return; }
-            if (args.Length == 2 && args[0] == "--preview")
+            if (args.Length == 2 && (args[0] == "--preview" || args[0] == "--preview-timer"))
             {
-                using (MainForm preview = new MainForm())
+                using (Form preview = args[0] == "--preview" ? (Form)new MainForm() : new TimerBadge(1499, delegate { }))
                 {
                     preview.StartPosition = FormStartPosition.Manual; preview.Location = new System.Drawing.Point(-20000, -20000);
                     preview.Show(); Application.DoEvents();
@@ -86,6 +86,7 @@ namespace LockIn
     {
         public bool Primary;
         public bool Selected;
+        public bool AccentOutline;
         public string Glyph;
         private bool hovered;
 
@@ -119,12 +120,13 @@ namespace LockIn
             Color fill = Selected || hovered ? Theme.Tint : Theme.Card;
             if (Primary) fill = hovered ? Color.FromArgb(139, 38, 62) : Theme.Accent;
             if (!Enabled) fill = Theme.Background;
-            Color ink = Primary && Enabled ? Color.White : Theme.Text;
+            Color ink = Primary ? Color.White : AccentOutline ? Theme.Accent : Theme.Text;
             if (!Enabled) ink = Theme.Muted;
             Rectangle bounds = new Rectangle(1, 1, Width - 2, Height - 2);
             using (GraphicsPath path = Theme.RoundedRectangle(bounds, 9))
             using (SolidBrush brush = new SolidBrush(fill))
-            using (Pen outline = new Pen(Selected || Focused ? Theme.Accent : Theme.Line, Selected || Focused ? 1.8f : 1f))
+            using (Pen outline = new Pen(Selected || AccentOutline || Focused ? Theme.Accent : Theme.Line,
+                Selected || Focused ? 1.8f : 1f))
             {
                 e.Graphics.FillPath(brush, path);
                 if (!Primary || !Enabled) e.Graphics.DrawPath(outline, path);
@@ -389,7 +391,11 @@ namespace LockIn
                     Activate();
                     status.Text = completed ? "Session complete" : "Session ended";
                 });
-                try { session.Start(); Hide(); }
+                try
+                {
+                    session.Start();
+                    if (session != null) Hide();
+                }
                 catch { RecoverSession(); throw; }
             }
             catch (Exception e)
@@ -541,14 +547,14 @@ namespace LockIn
         private bool ending;
         private bool correcting;
         private bool emergencyQueued;
+        private bool hotkeyRegistered;
         private Rectangle bounds;
 
         public StudySession(MainForm owner, IntPtr target, int seconds, Action<bool> ended)
         { this.owner = owner; this.target = target; this.seconds = seconds; this.ended = ended; }
         public void Start()
         {
-            if (!Native.RegisterHotKey(owner.Handle, HotkeyId, 0x4007, 0x7B))
-                throw new Win32Exception(Marshal.GetLastWin32Error(), "The recovery shortcut is unavailable. Close the app using it and retry.");
+            hotkeyRegistered = Native.RegisterHotKey(owner.Handle, HotkeyId, 0x4007, 0x7B);
             state = new RecoveryState { ParentPid = Process.GetCurrentProcess().Id,
                 ParentStartTicks = Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks,
                 Seconds = seconds, Target = WindowRecord.Capture(target) };
@@ -567,7 +573,9 @@ namespace LockIn
             }
             foreach (WindowRecord record in state.Others) Native.ShowWindowAsync(new IntPtr(record.Handle), 7);
             Native.Fullscreen(target, bounds);
-            badge = new TimerBadge(); badge.Location = new Point(bounds.Left + (bounds.Width - badge.Width) / 2, bounds.Top + 8); badge.Show();
+            badge = new TimerBadge(seconds, delegate { End(false); });
+            badge.Location = new Point(bounds.Left + (bounds.Width - badge.Width) / 2, bounds.Top + 8);
+            badge.Show();
             clock = new SessionClock(seconds, Native.GetTickCount64);
             active = true;
             foreach (int key in new int[] { 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0x5B, 0x5C })
@@ -596,7 +604,7 @@ namespace LockIn
             if (!active || ending) return;
             if (clock.Remaining == 0) { End(true); return; }
             if (!state.Target.Matches()) { End(false); return; }
-            badge.Remaining = clock.Remaining; badge.Invalidate();
+            badge.Remaining = clock.Remaining;
             Native.Rect rect; Native.GetWindowRect(target, out rect);
             if (Native.IsIconic(target) || !rect.Rectangle.Equals(bounds)) Native.Fullscreen(target, bounds);
             if (!Allowed(Native.GetForegroundWindow())) BringBack();
@@ -649,7 +657,7 @@ namespace LockIn
             timer.Stop(); timer.Dispose();
             if (keyboardHook != IntPtr.Zero) Native.UnhookWindowsHookEx(keyboardHook);
             if (foregroundHook != IntPtr.Zero) Native.UnhookWinEvent(foregroundHook);
-            Native.UnregisterHotKey(owner.Handle, HotkeyId);
+            if (hotkeyRegistered) Native.UnregisterHotKey(owner.Handle, HotkeyId);
             if (badge != null) badge.Close();
             foreach (Shield shield in shields) shield.Close();
             if (state != null) Recovery.Restore(state);
@@ -680,19 +688,101 @@ namespace LockIn
 
     internal sealed class TimerBadge : Form
     {
-        public int Remaining;
-        public TimerBadge()
+        private readonly Label countdown;
+
+        public TimerBadge(int remaining, Action stop)
         {
-            FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; TopMost = true;
-            StartPosition = FormStartPosition.Manual; Size = new Size(290, 40); BackColor = Theme.Background; DoubleBuffered = true;
+            SuspendLayout();
+            FormBorderStyle = FormBorderStyle.None;
+            ShowInTaskbar = false;
+            TopMost = true;
+            StartPosition = FormStartPosition.Manual;
+            AutoScaleDimensions = new SizeF(96, 96);
+            AutoScaleMode = AutoScaleMode.Dpi;
+            ClientSize = new Size(204, 46);
+            BackColor = Theme.Card;
+            DoubleBuffered = true;
+
+            countdown = new Label
+            {
+                Text = SessionClock.Format(remaining),
+                Bounds = new Rectangle(31, 1, 73, 44),
+                Font = Theme.Font(12, FontStyle.Bold),
+                ForeColor = Theme.Text,
+                TextAlign = ContentAlignment.MiddleCenter,
+                AccessibleName = "Time remaining"
+            };
+            FlatButton stopButton = new FlatButton
+            {
+                Text = "Stop",
+                Glyph = "\u25a0",
+                AccentOutline = true,
+                Bounds = new Rectangle(116, 6, 78, 34),
+                Font = Theme.Font(9, FontStyle.Bold),
+                AccessibleName = "Stop session"
+            };
+            stopButton.Click += delegate { stop(); };
+            Controls.AddRange(new Control[] { countdown, stopButton });
+            ResumeLayout(false);
+            PerformLayout();
         }
+
+        public int Remaining
+        {
+            set
+            {
+                string text = SessionClock.Format(value);
+                if (countdown.Text != text) countdown.Text = text;
+            }
+        }
+
         protected override bool ShowWithoutActivation { get { return true; } }
         protected override CreateParams CreateParams { get { CreateParams p = base.CreateParams; p.ExStyle |= 0x08000080; return p; } }
+
+        protected override void WndProc(ref Message m)
+        {
+            // Keep the study app focused while still delivering the Stop click.
+            if (m.Msg == 0x0021)
+            {
+                m.Result = new IntPtr(3);
+                return;
+            }
+            base.WndProc(ref m);
+        }
+
+        protected override void OnSizeChanged(EventArgs e)
+        {
+            base.OnSizeChanged(e);
+            if (ClientSize.Width <= 0 || ClientSize.Height <= 0) return;
+            using (GraphicsPath path = Theme.RoundedRectangle(ClientRectangle, Height / 2))
+            {
+                Region previous = Region;
+                Region = new Region(path);
+                if (previous != null) previous.Dispose();
+            }
+        }
+
         protected override void OnPaint(PaintEventArgs e)
         {
-            using (Pen pen = new Pen(Theme.Line)) e.Graphics.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
-            using (Font font = Theme.Font(11, FontStyle.Bold)) TextRenderer.DrawText(e.Graphics, "STUDY SESSION   /   " + SessionClock.Format(Remaining), font,
-                ClientRectangle, Theme.Accent, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            Rectangle outline = Rectangle.Inflate(ClientRectangle, -1, -1);
+            using (GraphicsPath path = Theme.RoundedRectangle(outline, outline.Height / 2))
+            using (Pen line = new Pen(Theme.Line))
+                e.Graphics.DrawPath(line, path);
+
+            GraphicsState state = e.Graphics.Save();
+            float scale = ClientSize.Width / 204f;
+            e.Graphics.ScaleTransform(scale, scale);
+            using (Pen line = new Pen(Theme.Line))
+                e.Graphics.DrawLine(line, 109, 12, 109, 34);
+            using (Pen icon = new Pen(Theme.Accent, 1.5f))
+            {
+                e.Graphics.DrawEllipse(icon, 15, 17, 13, 13);
+                e.Graphics.DrawLine(icon, 19, 14, 24, 14);
+                e.Graphics.DrawLine(icon, 21.5f, 14, 21.5f, 17);
+                e.Graphics.DrawLine(icon, 21.5f, 20, 21.5f, 23.5f);
+            }
+            e.Graphics.Restore(state);
         }
     }
 
